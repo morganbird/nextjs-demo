@@ -51,7 +51,14 @@ export default function Feed() {
           throw new Error("Failed to fetch feed");
         }
         const data = await response.json();
-        setPosts(data.posts);
+        // Deduplicate posts by URI (can happen with reposts)
+        const seen = new Set<string>();
+        const uniquePosts = data.posts.filter((post: Post) => {
+          if (seen.has(post.uri)) return false;
+          seen.add(post.uri);
+          return true;
+        });
+        setPosts(uniquePosts);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {

@@ -1,3 +1,4 @@
+import Digest from "./components/Digest";
 import Feed from "./components/Feed";
 
 export default function Home() {
@@ -7,6 +8,7 @@ export default function Home() {
         <h1 className="mb-8 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
           Bluesky Feed
         </h1>
+        <Digest />
         <Feed />
       </main>
     </div>
