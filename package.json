@@ -14,7 +14,7 @@
     "@atproto/jwk-jose": "^0.1.11",
     "@atproto/oauth-client-node": "^0.3.12",
     "@vercel/kv": "^3.0.0",
-    "next": "16.0.4",
+    "next": "^16.0.7",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
