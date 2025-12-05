@@ -1,7 +1,6 @@
 import { BskyAgent } from "@atproto/api";
 import { getAnthropicClient } from "@/app/lib/anthropic";
-import { promises as fs } from "fs";
-import path from "path";
+import { kv } from "@vercel/kv";
 
 interface Post {
   uri: string;
@@ -36,37 +35,31 @@ interface DigestCache {
   date: string;
 }
 
-const CACHE_DIR = path.join(process.cwd(), ".cache");
-
 type DigestType = "general" | "ai";
 
-function getCacheFile(type: DigestType): string {
-  return path.join(CACHE_DIR, `digest-${type}.json`);
+function getCacheKey(type: DigestType): string {
+  const today = new Date().toISOString().split("T")[0];
+  return `digest:${type}:${today}`;
 }
 
 async function getCache(type: DigestType): Promise<DigestCache | null> {
   try {
-    const data = await fs.readFile(getCacheFile(type), "utf-8");
-    const cache: DigestCache = JSON.parse(data);
-    // Check if cache is from today
-    const today = new Date().toISOString().split("T")[0];
-    if (cache.date === today) {
-      return cache;
-    }
-    return null;
-  } catch {
+    const cache = await kv.get<DigestCache>(getCacheKey(type));
+    return cache;
+  } catch (error) {
+    console.error("Failed to read cache:", error);
     return null;
   }
 }
 
 async function setCache(type: DigestType, digest: DigestCache["digest"]): Promise<void> {
   try {
-    await fs.mkdir(CACHE_DIR, { recursive: true });
     const cache: DigestCache = {
       digest,
       date: new Date().toISOString().split("T")[0],
     };
-    await fs.writeFile(getCacheFile(type), JSON.stringify(cache, null, 2));
+    // Cache expires after 24 hours
+    await kv.set(getCacheKey(type), cache, { ex: 86400 });
   } catch (error) {
     console.error("Failed to write cache:", error);
   }
