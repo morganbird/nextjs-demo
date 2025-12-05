@@ -1,5 +1,7 @@
-import { BskyAgent } from "@atproto/api";
+import { Agent } from "@atproto/api";
 import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { getOAuthClient } from "@/app/lib/oauth/client";
 
 const FEEDS = {
   timeline: null, // special case - uses getTimeline
@@ -11,23 +13,31 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const feedType = searchParams.get("feed") || "timeline";
 
-  const handle = process.env.BLUESKY_HANDLE;
-  const appPassword = process.env.BLUESKY_APP_PASSWORD;
+  // Check for OAuth session
+  const cookieStore = await cookies();
+  const sessionDid = cookieStore.get("bsky_session")?.value;
 
-  if (!handle || !appPassword) {
+  if (!sessionDid) {
     return NextResponse.json(
-      { error: "Missing Bluesky credentials" },
-      { status: 500 }
+      { error: "Not authenticated", needsAuth: true },
+      { status: 401 }
     );
   }
 
   try {
-    const agent = new BskyAgent({ service: "https://bsky.social" });
+    // Restore OAuth session and create agent
+    const oauthClient = await getOAuthClient();
+    const oauthSession = await oauthClient.restore(sessionDid);
 
-    await agent.login({
-      identifier: handle,
-      password: appPassword,
-    });
+    if (!oauthSession) {
+      cookieStore.delete("bsky_session");
+      return NextResponse.json(
+        { error: "Session expired", needsAuth: true },
+        { status: 401 }
+      );
+    }
+
+    const agent = new Agent(oauthSession);
 
     let feedData;
     if (feedType === "timeline") {

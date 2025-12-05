@@ -75,11 +75,13 @@ export default function Digest() {
   const [digest, setDigest] = useState<DigestData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
   const [selectedTab, setSelectedTab] = useState<DigestType>("general");
 
   const fetchDigest = useCallback(async (type: DigestType, refresh = false) => {
     setLoading(true);
     setError(null);
+    setNeedsAuth(false);
 
     try {
       const params = new URLSearchParams({ type });
@@ -87,12 +89,16 @@ export default function Digest() {
       const url = `/api/bluesky/digest?${params.toString()}`;
       const response = await fetch(url);
 
+      const data = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to generate digest");
+        if (data.needsAuth) {
+          setNeedsAuth(true);
+          return;
+        }
+        throw new Error(data.error || "Failed to generate digest");
       }
 
-      const data = await response.json();
       setDigest(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -104,6 +110,16 @@ export default function Digest() {
   useEffect(() => {
     fetchDigest(selectedTab);
   }, [fetchDigest, selectedTab]);
+
+  if (needsAuth) {
+    return (
+      <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <p className="text-zinc-600 dark:text-zinc-400">
+          Sign in with Bluesky above to view your daily digest.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">

@@ -11,6 +11,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
     "@atproto/api": "^0.18.3",
+    "@atproto/jwk-jose": "^0.1.11",
+    "@atproto/oauth-client-node": "^0.3.12",
     "@vercel/kv": "^3.0.0",
     "next": "16.0.4",
     "react": "19.2.0",

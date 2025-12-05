@@ -1,6 +1,8 @@
-import { BskyAgent } from "@atproto/api";
+import { Agent } from "@atproto/api";
 import { getAnthropicClient } from "@/app/lib/anthropic";
 import { kv } from "@vercel/kv";
+import { cookies } from "next/headers";
+import { getOAuthClient } from "@/app/lib/oauth/client";
 
 interface Post {
   uri: string;
@@ -90,7 +92,7 @@ const AI_FEEDS = [
 ];
 
 async function fetchAIFeedPosts(
-  agent: BskyAgent,
+  agent: Agent,
   twentyFourHoursAgo: Date
 ): Promise<Post[]> {
   const allPosts: Post[] = [];
@@ -300,16 +302,6 @@ export async function GET(request: Request) {
     }
   }
 
-  const handle = process.env.BLUESKY_HANDLE;
-  const appPassword = process.env.BLUESKY_APP_PASSWORD;
-
-  if (!handle || !appPassword) {
-    return new Response(JSON.stringify({ error: "Missing Bluesky credentials" }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-
   if (!process.env.ANTHROPIC_API_KEY) {
     return new Response(JSON.stringify({ error: "Missing Anthropic API key" }), {
       status: 500,
@@ -317,10 +309,31 @@ export async function GET(request: Request) {
     });
   }
 
+  // Check for OAuth session
+  const cookieStore = await cookies();
+  const sessionDid = cookieStore.get("bsky_session")?.value;
+
+  if (!sessionDid) {
+    return new Response(JSON.stringify({ error: "Not authenticated", needsAuth: true }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
   try {
-    // Authenticate with Bluesky
-    const agent = new BskyAgent({ service: "https://bsky.social" });
-    await agent.login({ identifier: handle, password: appPassword });
+    // Restore OAuth session and create agent
+    const oauthClient = await getOAuthClient();
+    const oauthSession = await oauthClient.restore(sessionDid);
+
+    if (!oauthSession) {
+      cookieStore.delete("bsky_session");
+      return new Response(JSON.stringify({ error: "Session expired", needsAuth: true }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    const agent = new Agent(oauthSession);
 
     // Fetch posts with pagination
     // Note: Feed isn't strictly chronological (reposts, algorithm), so we fetch

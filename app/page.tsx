@@ -1,4 +1,5 @@
 import Digest from "./components/Digest";
+import Auth from "./components/Auth";
 
 export default function Home() {
   return (
@@ -7,6 +8,7 @@ export default function Home() {
         <h1 className="mb-8 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
           Bluesky Daily Digest
         </h1>
+        <Auth />
         <Digest />
       </main>
     </div>
