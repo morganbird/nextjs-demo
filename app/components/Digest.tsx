@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -225,64 +225,39 @@ export default function Digest() {
 }
 
 function EmbeddedPost({ post }: { post: Post }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const postId = post.uri.split("/").pop();
   const postUrl = `https://bsky.app/profile/${post.author.handle}/post/${postId}`;
 
+  useEffect(() => {
+    // Load Bluesky embed script if not already loaded
+    if (!document.querySelector('script[src="https://embed.bsky.app/static/embed.js"]')) {
+      const script = document.createElement("script");
+      script.src = "https://embed.bsky.app/static/embed.js";
+      script.async = true;
+      script.charset = "utf-8";
+      document.body.appendChild(script);
+    } else {
+      // Script already loaded, scan for new embeds
+      (window as unknown as { bluesky?: { scan?: () => void } }).bluesky?.scan?.();
+    }
+  }, [post.uri]);
+
   return (
-    <a
-      href={postUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="block rounded-lg border border-zinc-200 bg-zinc-50 p-3 hover:bg-zinc-100 transition-colors dark:border-zinc-700 dark:bg-zinc-800 dark:hover:bg-zinc-750"
-    >
-      <div className="flex items-start gap-3">
-        {post.author.avatar ? (
-          <img
-            src={post.author.avatar}
-            alt={post.author.handle}
-            className="h-8 w-8 rounded-full"
-          />
-        ) : (
-          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700">
-            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
-              {post.author.handle[0].toUpperCase()}
-            </span>
-          </div>
-        )}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              {post.author.displayName || post.author.handle}
-            </span>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">
-              @{post.author.handle}
-            </span>
-          </div>
-          <p className="mt-1 text-sm text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap line-clamp-4">
-            {post.text}
-          </p>
-          {post.quotedPost && (
-            <div className="mt-2 rounded border border-zinc-200 bg-white p-2 dark:border-zinc-600 dark:bg-zinc-700">
-              <div className="flex items-center gap-1 mb-1">
-                <span className="text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                  {post.quotedPost.author.displayName || post.quotedPost.author.handle}
-                </span>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                  @{post.quotedPost.author.handle}
-                </span>
-              </div>
-              <p className="text-xs text-zinc-600 dark:text-zinc-300 line-clamp-2">
-                {post.quotedPost.text}
-              </p>
-            </div>
-          )}
-          <div className="mt-2 flex gap-3 text-xs text-zinc-500 dark:text-zinc-400">
-            <span>{post.replyCount} replies</span>
-            <span>{post.repostCount} reposts</span>
-            <span>{post.likeCount} likes</span>
-          </div>
-        </div>
-      </div>
-    </a>
+    <div ref={containerRef}>
+      <blockquote
+        className="bluesky-embed"
+        data-bluesky-uri={post.uri}
+        data-bluesky-cid=""
+      >
+        <p lang="en">
+          {post.text}
+        </p>
+        &mdash; {post.author.displayName || post.author.handle} (
+        <a href={`https://bsky.app/profile/${post.author.handle}`}>@{post.author.handle}</a>)
+        {" "}
+        <a href={postUrl}>View post</a>
+      </blockquote>
+    </div>
   );
 }
