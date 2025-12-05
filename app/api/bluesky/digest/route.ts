@@ -37,11 +37,16 @@ interface DigestCache {
 }
 
 const CACHE_DIR = path.join(process.cwd(), ".cache");
-const CACHE_FILE = path.join(CACHE_DIR, "digest.json");
 
-async function getCache(): Promise<DigestCache | null> {
+type DigestType = "general" | "ai";
+
+function getCacheFile(type: DigestType): string {
+  return path.join(CACHE_DIR, `digest-${type}.json`);
+}
+
+async function getCache(type: DigestType): Promise<DigestCache | null> {
   try {
-    const data = await fs.readFile(CACHE_FILE, "utf-8");
+    const data = await fs.readFile(getCacheFile(type), "utf-8");
     const cache: DigestCache = JSON.parse(data);
     // Check if cache is from today
     const today = new Date().toISOString().split("T")[0];
@@ -54,20 +59,96 @@ async function getCache(): Promise<DigestCache | null> {
   }
 }
 
-async function setCache(digest: DigestCache["digest"]): Promise<void> {
+async function setCache(type: DigestType, digest: DigestCache["digest"]): Promise<void> {
   try {
     await fs.mkdir(CACHE_DIR, { recursive: true });
     const cache: DigestCache = {
       digest,
       date: new Date().toISOString().split("T")[0],
     };
-    await fs.writeFile(CACHE_FILE, JSON.stringify(cache, null, 2));
+    await fs.writeFile(getCacheFile(type), JSON.stringify(cache, null, 2));
   } catch (error) {
     console.error("Failed to write cache:", error);
   }
 }
 
-const DIGEST_SYSTEM_PROMPT = `You are a skilled social media analyst creating a daily digest of Bluesky posts. Your goal is to help the reader understand what happened today in their feed without reading every post.
+// AI/ML related keywords for filtering
+const AI_KEYWORDS = [
+  "\\bai\\b", "artificial intelligence", "machine learning", "\\bml\\b", "deep learning",
+  "\\bllm\\b", "large language model", "\\bgpt\\b", "claude", "chatgpt", "gemini", "\\bllama\\b",
+  "neural network", "transformer", "diffusion", "stable diffusion", "midjourney",
+  "openai", "anthropic", "deepmind", "hugging face", "huggingface",
+  "\\bagi\\b", "alignment", "\\brlhf\\b", "fine-tuning", "finetuning", "embeddings", "\\brag\\b", "vector",
+  "prompt engineering", "inference", "\\bmodel weights\\b", "foundation model",
+  "generative ai", "gen ai", "genai", "copilot", "\\bgrok\\b", "perplexity", "\\bmistral\\b",
+  "baguettotron", "context window", "arxiv", "model", "train"
+];
+
+const AI_KEYWORDS_REGEX = new RegExp(AI_KEYWORDS.join("|"), "i");
+
+function isAIRelated(post: Post): boolean {
+  const textToCheck = post.text + (post.quotedPost?.text || "");
+  return AI_KEYWORDS_REGEX.test(textToCheck);
+}
+
+// External AI/ML feeds to include in the AI digest
+const AI_FEEDS = [
+  { handle: "smcgrath.phd", rkey: "MLBlend" },
+];
+
+async function fetchAIFeedPosts(
+  agent: BskyAgent,
+  twentyFourHoursAgo: Date
+): Promise<Post[]> {
+  const allPosts: Post[] = [];
+
+  for (const feed of AI_FEEDS) {
+    try {
+      // Resolve handle to DID
+      const profile = await agent.getProfile({ actor: feed.handle });
+      const did = profile.data.did;
+      const feedUri = `at://${did}/app.bsky.feed.generator/${feed.rkey}`;
+
+      // Fetch from the feed with pagination
+      let cursor: string | undefined;
+      let oldPostCount = 0;
+      const MAX_OLD_POSTS = 10;
+
+      while (true) {
+        const feedData = await agent.app.bsky.feed.getFeed({
+          feed: feedUri,
+          limit: 100,
+          cursor,
+        });
+
+        if (feedData.data.feed.length === 0) break;
+
+        for (const item of feedData.data.feed) {
+          const post = extractPost(item);
+          const postDate = new Date(post.createdAt);
+
+          if (postDate < twentyFourHoursAgo) {
+            oldPostCount++;
+          } else {
+            oldPostCount = 0;
+            allPosts.push(post);
+          }
+        }
+
+        cursor = feedData.data.cursor;
+        if (oldPostCount >= MAX_OLD_POSTS || !cursor || allPosts.length > 500) {
+          break;
+        }
+      }
+    } catch (error) {
+      console.error(`Failed to fetch feed ${feed.handle}/${feed.rkey}:`, error);
+    }
+  }
+
+  return allPosts;
+}
+
+const DIGEST_SYSTEM_PROMPT_GENERAL = `You are a skilled social media analyst creating a daily digest of Bluesky posts. Your goal is to help the reader understand what happened today in their feed without reading every post.
 
 Guidelines:
 - Synthesize themes, don't just list posts
@@ -93,6 +174,36 @@ You MUST respond with valid JSON in this exact format:
 Rules:
 - postIndex refers to the [number] at the start of each post in the input
 - Select 5-10 notable posts
+- Keep reasons concise but insightful
+- Respond with ONLY the JSON, no other text`;
+
+const DIGEST_SYSTEM_PROMPT_AI = `You are an AI/ML specialist creating a daily digest of AI-related Bluesky posts. Your goal is to help the reader stay current on AI developments without reading every post.
+
+These posts were pre-filtered by keywords, so some may be false positives (mentioning AI tangentially). Focus on posts that are substantively about AI/ML.
+
+Guidelines:
+- Focus ONLY on posts genuinely about AI, machine learning, LLMs, or related technology
+- Ignore posts that mention AI tangentially or aren't really about AI
+- Group by sub-topics: new models/releases, research, products/tools, industry news, ethics/safety, tutorials/tips
+- Highlight significant announcements, insights, or discussions
+- Note emerging debates or trends in the AI community
+
+You MUST respond with valid JSON in this exact format:
+{
+  "overview": "2-3 sentences summarizing the main AI/ML themes and news of the day.",
+  "notablePosts": [
+    {
+      "postIndex": 1,
+      "reason": "Brief explanation of why this AI post is notable (1-2 sentences)"
+    }
+  ],
+  "trendingTopics": ["AI topic 1", "AI topic 2", "AI topic 3"]
+}
+
+Rules:
+- postIndex refers to the [number] at the start of each post in the input
+- Select 5-10 notable posts that are GENUINELY about AI/ML
+- Exclude false positives (posts not really about AI)
 - Keep reasons concise but insightful
 - Respond with ONLY the JSON, no other text`;
 
@@ -183,13 +294,14 @@ function extractPost(item: { post: { uri: string; author: { handle: string; disp
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const refresh = url.searchParams.get("refresh") === "true";
+  const digestType: DigestType = url.searchParams.get("type") === "ai" ? "ai" : "general";
 
   // Check cache first (unless refresh requested)
   if (!refresh) {
-    const cached = await getCache();
+    const cached = await getCache(digestType);
     if (cached) {
       return new Response(
-        JSON.stringify({ ...cached.digest, cached: true }),
+        JSON.stringify({ ...cached.digest, digestType, cached: true }),
         { headers: { "Content-Type": "application/json" } }
       );
     }
@@ -274,18 +386,51 @@ export async function GET(request: Request) {
         )
       : null;
 
-    // Sort by engagement and take top posts for summarization
-    const topPosts = [...posts]
-      .sort((a, b) => calculateEngagementScore(b) - calculateEngagementScore(a))
-      .slice(0, 150);
+    // Select posts based on digest type
+    let postsForDigest: Post[];
+    let keywordMatches: number | undefined;
+    let feedPostCount: number | undefined;
+
+    if (digestType === "ai") {
+      // For AI digest: combine keyword-matched timeline posts with AI feed posts
+      const aiTimelinePosts = posts.filter(isAIRelated);
+      keywordMatches = aiTimelinePosts.length;
+
+      // Fetch posts from external AI feeds
+      const aiFeedPosts = await fetchAIFeedPosts(agent, twentyFourHoursAgo);
+      feedPostCount = aiFeedPosts.length;
+
+      // Merge and deduplicate
+      const allAIPosts = [...aiTimelinePosts, ...aiFeedPosts];
+      const seenUris = new Set<string>();
+      const uniqueAIPosts = allAIPosts.filter((post) => {
+        if (seenUris.has(post.uri)) return false;
+        seenUris.add(post.uri);
+        return true;
+      });
+
+      postsForDigest = [...uniqueAIPosts]
+        .sort((a, b) => calculateEngagementScore(b) - calculateEngagementScore(a))
+        .slice(0, 150);
+    } else {
+      // For general digest: top 150 by engagement
+      postsForDigest = [...posts]
+        .sort((a, b) => calculateEngagementScore(b) - calculateEngagementScore(a))
+        .slice(0, 150);
+    }
+
+    // Select appropriate system prompt
+    const systemPrompt = digestType === "ai"
+      ? DIGEST_SYSTEM_PROMPT_AI
+      : DIGEST_SYSTEM_PROMPT_GENERAL;
 
     // Generate digest with Claude
     const anthropic = getAnthropicClient();
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 2000,
-      system: DIGEST_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: buildDigestPrompt(topPosts) }],
+      system: systemPrompt,
+      messages: [{ role: "user", content: buildDigestPrompt(postsForDigest) }],
     });
 
     // Extract text response
@@ -304,7 +449,7 @@ export async function GET(request: Request) {
     // Map post indices to actual posts with full data
     const notablePostsWithData = digestData.notablePosts.map(
       (notable: { postIndex: number; reason: string }) => {
-        const post = topPosts[notable.postIndex - 1]; // postIndex is 1-based
+        const post = postsForDigest[notable.postIndex - 1]; // postIndex is 1-based
         return {
           post: post
             ? {
@@ -328,15 +473,18 @@ export async function GET(request: Request) {
       trendingTopics: digestData.trendingTopics,
       meta: {
         totalPosts: posts.length,
-        postsAnalyzed: topPosts.length,
+        postsAnalyzed: postsForDigest.length,
         newestPostDate: newestPost?.createdAt || null,
         oldestPostDate: oldestPost?.createdAt || null,
         generatedAt: new Date().toISOString(),
+        digestType,
+        ...(keywordMatches !== undefined && { keywordMatches }),
+        ...(feedPostCount !== undefined && { feedPostCount }),
       },
     };
 
     // Cache the result
-    await setCache(digest);
+    await setCache(digestType, digest);
 
     return new Response(
       JSON.stringify({ ...digest, cached: false }),

@@ -51,6 +51,9 @@ interface DigestMeta {
   newestPostDate: string | null;
   oldestPostDate: string | null;
   generatedAt: string;
+  digestType?: "general" | "ai";
+  keywordMatches?: number;
+  feedPostCount?: number;
 }
 
 interface DigestData {
@@ -61,17 +64,27 @@ interface DigestData {
   cached?: boolean;
 }
 
+type DigestType = "general" | "ai";
+
+const DIGEST_TABS = [
+  { id: "general" as DigestType, label: "General" },
+  { id: "ai" as DigestType, label: "AI & ML" },
+] as const;
+
 export default function Digest() {
   const [digest, setDigest] = useState<DigestData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedTab, setSelectedTab] = useState<DigestType>("general");
 
-  const fetchDigest = useCallback(async (refresh = false) => {
+  const fetchDigest = useCallback(async (type: DigestType, refresh = false) => {
     setLoading(true);
     setError(null);
 
     try {
-      const url = refresh ? "/api/bluesky/digest?refresh=true" : "/api/bluesky/digest";
+      const params = new URLSearchParams({ type });
+      if (refresh) params.set("refresh", "true");
+      const url = `/api/bluesky/digest?${params.toString()}`;
       const response = await fetch(url);
 
       if (!response.ok) {
@@ -89,8 +102,8 @@ export default function Digest() {
   }, []);
 
   useEffect(() => {
-    fetchDigest();
-  }, [fetchDigest]);
+    fetchDigest(selectedTab);
+  }, [fetchDigest, selectedTab]);
 
   return (
     <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
@@ -99,12 +112,30 @@ export default function Digest() {
           Daily Digest
         </h2>
         <button
-          onClick={() => fetchDigest(true)}
+          onClick={() => fetchDigest(selectedTab, true)}
           disabled={loading}
           className="rounded-full px-3 py-1 text-sm font-medium bg-zinc-100 text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
         >
           {loading ? "Generating..." : "Refresh"}
         </button>
+      </div>
+
+      {/* Tab switcher */}
+      <div className="mb-4 flex gap-2">
+        {DIGEST_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setSelectedTab(tab.id)}
+            disabled={loading}
+            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+              selectedTab === tab.id
+                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {error ? (
@@ -120,7 +151,17 @@ export default function Digest() {
           {/* Meta info */}
           {digest.meta && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Analyzed {digest.meta.postsAnalyzed} of {digest.meta.totalPosts} posts
+              {digest.meta.keywordMatches !== undefined ? (
+                <>
+                  Found {digest.meta.keywordMatches} AI posts from timeline
+                  {digest.meta.feedPostCount !== undefined && digest.meta.feedPostCount > 0 && (
+                    <> + {digest.meta.feedPostCount} from ML feeds</>
+                  )}
+                  , analyzed top {digest.meta.postsAnalyzed}
+                </>
+              ) : (
+                <>Analyzed {digest.meta.postsAnalyzed} of {digest.meta.totalPosts} posts</>
+              )}
               {digest.meta.oldestPostDate && digest.meta.newestPostDate && (
                 <> from {formatRelativeTime(digest.meta.oldestPostDate)} to {formatRelativeTime(digest.meta.newestPostDate)}</>
               )}
