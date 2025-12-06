@@ -39,14 +39,15 @@ interface DigestCache {
 
 type DigestType = "general" | "ai";
 
-function getCacheKey(type: DigestType): string {
+function getCacheKey(did: string, type: DigestType): string {
   const today = new Date().toISOString().split("T")[0];
-  return `digest:${type}:${today}`;
+  // Include user DID in cache key for per-account caching
+  return `digest:${did}:${type}:${today}`;
 }
 
-async function getCache(type: DigestType): Promise<DigestCache | null> {
+async function getCache(did: string, type: DigestType): Promise<DigestCache | null> {
   try {
-    const cache = await kv.get<DigestCache>(getCacheKey(type));
+    const cache = await kv.get<DigestCache>(getCacheKey(did, type));
     return cache;
   } catch (error) {
     console.error("Failed to read cache:", error);
@@ -54,14 +55,14 @@ async function getCache(type: DigestType): Promise<DigestCache | null> {
   }
 }
 
-async function setCache(type: DigestType, digest: DigestCache["digest"]): Promise<void> {
+async function setCache(did: string, type: DigestType, digest: DigestCache["digest"]): Promise<void> {
   try {
     const cache: DigestCache = {
       digest,
       date: new Date().toISOString().split("T")[0],
     };
     // Cache expires after 24 hours
-    await kv.set(getCacheKey(type), cache, { ex: 86400 });
+    await kv.set(getCacheKey(did, type), cache, { ex: 86400 });
   } catch (error) {
     console.error("Failed to write cache:", error);
   }
@@ -291,17 +292,6 @@ export async function GET(request: Request) {
   const refresh = url.searchParams.get("refresh") === "true";
   const digestType: DigestType = url.searchParams.get("type") === "ai" ? "ai" : "general";
 
-  // Check cache first (unless refresh requested)
-  if (!refresh) {
-    const cached = await getCache(digestType);
-    if (cached) {
-      return new Response(
-        JSON.stringify({ ...cached.digest, digestType, cached: true }),
-        { headers: { "Content-Type": "application/json" } }
-      );
-    }
-  }
-
   if (!process.env.ANTHROPIC_API_KEY) {
     return new Response(JSON.stringify({ error: "Missing Anthropic API key" }), {
       status: 500,
@@ -309,7 +299,7 @@ export async function GET(request: Request) {
     });
   }
 
-  // Check for OAuth session
+  // Check for OAuth session first (needed for per-account caching)
   const cookieStore = await cookies();
   const sessionDid = cookieStore.get("bsky_session")?.value;
 
@@ -318,6 +308,17 @@ export async function GET(request: Request) {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
+  }
+
+  // Check per-account cache (unless refresh requested)
+  if (!refresh) {
+    const cached = await getCache(sessionDid, digestType);
+    if (cached) {
+      return new Response(
+        JSON.stringify({ ...cached.digest, digestType, cached: true }),
+        { headers: { "Content-Type": "application/json" } }
+      );
+    }
   }
 
   try {
@@ -489,8 +490,8 @@ export async function GET(request: Request) {
       },
     };
 
-    // Cache the result
-    await setCache(digestType, digest);
+    // Cache the result per-account
+    await setCache(sessionDid, digestType, digest);
 
     return new Response(
       JSON.stringify({ ...digest, cached: false }),
