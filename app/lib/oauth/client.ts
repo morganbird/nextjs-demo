@@ -47,7 +47,9 @@ export async function getOAuthClient(): Promise<NodeOAuthClient> {
     throw new Error("NEXT_PUBLIC_URL or VERCEL_URL environment variable is required");
   }
 
-  const baseUrl = publicUrl.startsWith("http") ? publicUrl : `https://${publicUrl}`;
+  // Normalize URL: add https if needed, remove trailing slash
+  let baseUrl = publicUrl.startsWith("http") ? publicUrl : `https://${publicUrl}`;
+  baseUrl = baseUrl.replace(/\/+$/, "");
   const clientId = `${baseUrl}/api/oauth/client-metadata`;
 
   const privateKey = await JoseKey.fromJWK(JSON.parse(privateKeyJson));
