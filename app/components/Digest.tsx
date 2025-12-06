@@ -123,32 +123,31 @@ export default function Digest() {
 
   return (
     <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center justify-end mb-4">
+      {/* Tab switcher and refresh on same row */}
+      <div className="mb-4 flex items-center justify-between">
+        <div className="flex gap-2">
+          {DIGEST_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setSelectedTab(tab.id)}
+              disabled={loading}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
+                selectedTab === tab.id
+                  ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
+                  : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <button
           onClick={() => fetchDigest(selectedTab, true)}
           disabled={loading}
-          className="rounded-full px-3 py-1 text-sm font-medium bg-zinc-100 text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+          className="rounded-full px-3 py-1.5 text-sm font-medium bg-zinc-100 text-zinc-700 hover:bg-zinc-200 disabled:opacity-50 disabled:cursor-not-allowed dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
         >
           {loading ? "Generating..." : "Refresh"}
         </button>
-      </div>
-
-      {/* Tab switcher */}
-      <div className="mb-4 flex gap-2">
-        {DIGEST_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setSelectedTab(tab.id)}
-            disabled={loading}
-            className={`rounded-full px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed ${
-              selectedTab === tab.id
-                ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
       </div>
 
       {error ? (
