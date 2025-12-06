@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import LoginForm from "./LoginForm";
 
 function formatRelativeTime(dateString: string): string {
   const date = new Date(dateString);
@@ -114,9 +115,10 @@ export default function Digest() {
   if (needsAuth) {
     return (
       <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-        <p className="text-zinc-600 dark:text-zinc-400">
-          Sign in with Bluesky above to view your daily digest.
-        </p>
+        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
+          Sign in with Bluesky
+        </h2>
+        <LoginForm />
       </div>
     );
   }
