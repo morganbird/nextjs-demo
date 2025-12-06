@@ -123,10 +123,7 @@ export default function Digest() {
 
   return (
     <div className="mb-8 rounded-lg border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-          Daily Digest
-        </h2>
+      <div className="flex items-center justify-end mb-4">
         <button
           onClick={() => fetchDigest(selectedTab, true)}
           disabled={loading}
